@@ -105,42 +105,53 @@ try {
 // Chariow Service Helpers
 const chariowRequest = async (endpoint: string, options: any = {}) => {
   const url = `${CHARIOW_BASE_URL}${endpoint}`;
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      "Authorization": `Bearer ${CHARIOW_API_KEY}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    console.error("Chariow API Error:", data);
-    throw new Error(data.message || "Chariow API Error");
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        "Authorization": `Bearer ${CHARIOW_API_KEY}`,
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    });
+    
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      data = { message: text };
+    }
+    
+    if (!response.ok) {
+      console.error(`Chariow API Error (${endpoint}):`, JSON.stringify(data, null, 2));
+      // Extract error message from various possible locations
+      let errorMsg = data.message;
+      if (!errorMsg && data.errors) {
+        if (Array.isArray(data.errors) && data.errors.length > 0) {
+          errorMsg = data.errors.join(", ");
+        } else if (typeof data.errors === 'object' && Object.keys(data.errors).length > 0) {
+          errorMsg = JSON.stringify(data.errors);
+        }
+      }
+      throw new Error(errorMsg || `Chariow API Error (${response.status})`);
+    }
+    return data;
+  } catch (err: any) {
+    console.error(`Chariow Request Failed (${endpoint}):`, err.message);
+    throw err;
   }
-  return data;
 };
 
 const chariowService = {
-  createProduct: async (name: string, description: string, amount: number) => {
-    return chariowRequest("/products", {
-      method: "POST",
-      body: JSON.stringify({
-        store_id: CHARIOW_STORE_ID,
-        name,
-        description,
-        amount: Math.round(amount * 100), // Convert to cents
-        currency: "EUR",
-        type: "digital"
-      }),
-    });
-  },
-  createOrder: async (productId: string, customerEmail: string, metadata: any = {}) => {
+  createOrder: async (amount: number, name: string, customerEmail: string, metadata: any = {}) => {
     return chariowRequest("/orders", {
       method: "POST",
       body: JSON.stringify({
         store_id: CHARIOW_STORE_ID,
-        product_id: productId,
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: "EUR",
+        name: name, // Name of the item/subscription
         customer_email: customerEmail,
         metadata,
         redirect_url: `${process.env.APP_URL}/dashboard/subscriptions?success=true`,
@@ -251,24 +262,19 @@ async function startServer() {
 
   app.post("/api/subscriptions", authenticateToken, async (req: any, res) => {
     const { name, category, total_price, slots_total, description, logo_url } = req.body;
-    const pricePerPlace = total_price / slots_total;
-
+    
     try {
-      // 1. Create product in Chariow
-      const product = await chariowService.createProduct(
-        name,
-        description || `Abonnement partagé pour ${name}`,
-        pricePerPlace
-      );
+      // We no longer create a product in Chariow here because POST /products is not supported.
+      // We will create the order with the amount directly when someone joins.
 
-      // 2. Save to DB
       const stmt = db.prepare(`
-        INSERT INTO subscriptions (name, category, total_price, slots_total, slots_available, description, logo_url, owner_id, chariow_product_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO subscriptions (name, category, total_price, slots_total, slots_available, description, logo_url, owner_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      const result = stmt.run(name, category, total_price, slots_total, slots_total, description, logo_url, req.user.id, product.data.id);
+      const result = stmt.run(name, category, total_price, slots_total, slots_total, description, logo_url, req.user.id);
       res.json({ id: result.lastInsertRowid });
     } catch (e: any) {
+      console.error("Subscription creation error:", e.message);
       res.status(400).json({ error: e.message });
     }
   });
@@ -283,22 +289,37 @@ async function startServer() {
     if (existing) return res.status(400).json({ error: "Déjà rejoint ou en attente" });
 
     const sub: any = db.prepare("SELECT * FROM subscriptions WHERE id = ?").get(sub_id);
-    if (!sub || sub.slots_available <= 0) return res.status(400).json({ error: "Plus de places disponibles" });
+    if (!sub) return res.status(404).json({ error: "Abonnement non trouvé" });
+    if (sub.slots_available <= 0) return res.status(400).json({ error: "Plus de places disponibles" });
+
+    const pricePerPlace = sub.total_price / sub.slots_total;
 
     try {
-      // 1. Create order in Chariow
-      const order = await chariowService.createOrder(sub.chariow_product_id, req.user.email, {
-        subscription_id: sub_id,
-        user_id: user_id
-      });
+      // 1. Create order in Chariow with the amount directly
+      const order = await chariowService.createOrder(
+        pricePerPlace,
+        `Abonnement ${sub.name}`,
+        req.user.email,
+        {
+          subscription_id: sub_id,
+          user_id: user_id
+        }
+      );
+
+      const orderId = order.data?.id || order.id;
+      const checkoutUrl = order.data?.checkout_url || order.checkout_url;
+
+      if (!orderId || !checkoutUrl) {
+        throw new Error("Impossible de créer la commande Chariow");
+      }
 
       // 2. Save member as pending
       db.prepare(`
         INSERT INTO group_members (subscription_id, user_id, chariow_order_id, status, payment_status) 
         VALUES (?, ?, ?, 'pending', 'unpaid')
-      `).run(sub_id, user_id, order.data.id);
+      `).run(sub_id, user_id, orderId);
 
-      res.json({ checkout_url: order.data.checkout_url });
+      res.json({ checkout_url: checkoutUrl });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
