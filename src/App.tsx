@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
+import { Analytics } from "@vercel/analytics/react";
 import Home from "./pages/Home";
 import Marketplace from "./pages/Marketplace";
 import SubscriptionDetail from "./pages/SubscriptionDetail";
@@ -34,6 +35,7 @@ export default function App() {
           </main>
           <Footer />
           <Toaster position="bottom-right" />
+          <Analytics />
         </div>
       </Router>
     </AuthProvider>
