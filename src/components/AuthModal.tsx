@@ -15,29 +15,50 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
   const { login } = useAuth();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  React.useEffect(() => {
+    if (isOpen) {
+      console.log("AuthModal opened. Mode:", isLogin ? "Login" : "Register");
+    }
+  }, [isOpen, isLogin]);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (loading) return;
+    
+    setLoading(true);
     const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
     const body = isLogin ? { email, password } : { email, password, name };
 
     try {
+      console.log(`Submitting to ${endpoint}...`, { email });
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      
       const data = await res.json();
+      console.log("Auth response:", data);
+      
       if (res.ok) {
-        login(data.user);
-        toast.success(isLogin ? "Bon retour !" : "Bienvenue sur SubShare !");
-        onClose();
+        if (data.user) {
+          login(data.user);
+          toast.success(isLogin ? "Bon retour !" : "Bienvenue sur SubShare !");
+          onClose();
+        } else {
+          throw new Error("Données utilisateur manquantes dans la réponse");
+        }
       } else {
         toast.error(data.error || "Une erreur est survenue");
       }
-    } catch (err) {
-      toast.error("Erreur de connexion au serveur");
+    } catch (err: any) {
+      console.error("Auth error detail:", err);
+      toast.error(err.message || "Erreur de connexion au serveur");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -116,9 +137,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
                 <button
                   type="submit"
-                  className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                  disabled={loading}
+                  className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
                 >
-                  {isLogin ? "Se connecter" : "S'inscrire"}
+                  {loading ? "Chargement..." : (isLogin ? "Se connecter" : "S'inscrire")}
                 </button>
               </form>
 

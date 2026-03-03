@@ -7,13 +7,13 @@ export default function MyGroups() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // In a real app, we'd fetch only the user's created groups
-    fetch("/api/subscriptions")
+    fetch("/api/my-groups")
       .then(res => res.json())
       .then(data => {
-        setGroups(data.slice(0, 2)); // Mocking user's groups
+        setGroups(data);
         setLoading(false);
-      });
+      })
+      .catch(() => setLoading(false));
   }, []);
 
   return (
@@ -47,7 +47,7 @@ export default function MyGroups() {
               <div className="flex-grow text-center md:text-left">
                 <h3 className="text-xl font-bold text-slate-900 mb-1">{group.name}</h3>
                 <div className="flex flex-wrap justify-center md:justify-start gap-4 text-sm text-slate-500">
-                  <span className="flex items-center gap-1"><Users className="w-4 h-4" /> {group.slots_total - group.slots_available} / {group.slots_total} membres</span>
+                  <span className="flex items-center gap-1"><Users className="w-4 h-4" /> {group.active_members} / {group.slots_total} membres</span>
                   <span className="text-indigo-600 font-bold">{group.total_price}€ / mois total</span>
                 </div>
               </div>

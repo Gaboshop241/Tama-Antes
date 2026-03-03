@@ -6,26 +6,19 @@ export default function MySubscriptions() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/auth/me")
+    fetch("/api/my-subscriptions")
       .then(res => res.json())
       .then(data => {
-        // In a real app, we'd have an endpoint for joined subscriptions
-        // For now, let's fetch all and filter or use a mock that looks real
-        fetch("/api/subscriptions")
-          .then(res => res.json())
-          .then(allSubs => {
-            // Mocking the "joined" part for the demo but using real sub data
-            setSubs(allSubs.slice(0, 2).map((s: any) => ({
-              ...s,
-              owner: s.owner_name,
-              price: (s.total_price / s.slots_total).toFixed(2),
-              next_payment: "15 Mars 2024",
-              status: "active",
-              payment_status: "paid"
-            })));
-            setLoading(false);
-          });
-      });
+        setSubs(data.map((s: any) => ({
+          ...s,
+          owner: s.owner_name,
+          price: (s.total_price / s.slots_total).toFixed(2),
+          status: s.member_status,
+          payment_status: s.payment_status
+        })));
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, []);
 
   return (

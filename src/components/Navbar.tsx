@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Link } from "react-router-dom";
 import { Search, User, LogOut, Menu, X } from "lucide-react";
 import { useState } from "react";
@@ -8,6 +9,11 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const handleOpenAuth = () => {
+    console.log("Opening Auth Modal...");
+    setIsAuthModalOpen(true);
+  };
 
   return (
     <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
@@ -52,7 +58,7 @@ export default function Navbar() {
               </div>
             ) : (
               <button
-                onClick={() => setIsAuthModalOpen(true)}
+                onClick={handleOpenAuth}
                 className="bg-indigo-600 text-white px-6 py-2 rounded-full font-semibold hover:bg-indigo-700 transition-all shadow-sm"
               >
                 Connexion
@@ -75,7 +81,7 @@ export default function Navbar() {
           <Link to="/about" className="block text-slate-600 font-medium">Comment ça marche ?</Link>
           {!user && (
             <button
-              onClick={() => setIsAuthModalOpen(true)}
+              onClick={handleOpenAuth}
               className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold"
             >
               Connexion

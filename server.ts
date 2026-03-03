@@ -184,6 +184,7 @@ async function startServer() {
   // Auth
   app.post("/api/auth/register", async (req, res) => {
     const { email, password, name } = req.body;
+    console.log(`Register attempt: ${email}`);
     try {
       const hashedPassword = await bcrypt.hash(password, 10);
       const stmt = db.prepare("INSERT INTO users (email, password, name) VALUES (?, ?, ?)");
@@ -191,21 +192,31 @@ async function startServer() {
       const user = { id: result.lastInsertRowid, email, name };
       const token = jwt.sign(user, JWT_SECRET);
       res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
+      console.log(`Register success: ${email}`);
       res.json({ user });
     } catch (e: any) {
+      console.error(`Register error for ${email}:`, e.message);
       res.status(400).json({ error: e.message });
     }
   });
 
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
-    const user: any = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ error: "Invalid credentials" });
+    console.log(`Login attempt: ${email}`);
+    try {
+      const user: any = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+      if (!user || !(await bcrypt.compare(password, user.password))) {
+        console.log(`Login failed: ${email} (invalid credentials)`);
+        return res.status(401).json({ error: "Identifiants invalides" });
+      }
+      const token = jwt.sign({ id: user.id, email: user.email, name: user.name }, JWT_SECRET);
+      res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
+      console.log(`Login success: ${email}`);
+      res.json({ user: { id: user.id, email: user.email, name: user.name } });
+    } catch (e: any) {
+      console.error(`Login error for ${email}:`, e.message);
+      res.status(500).json({ error: "Erreur serveur lors de la connexion" });
     }
-    const token = jwt.sign({ id: user.id, email: user.email, name: user.name }, JWT_SECRET);
-    res.cookie("token", token, { httpOnly: true, secure: true, sameSite: "none" });
-    res.json({ user: { id: user.id, email: user.email, name: user.name } });
   });
 
   app.post("/api/auth/logout", (req, res) => {
@@ -336,6 +347,26 @@ async function startServer() {
       ORDER BY p.created_at DESC
     `).all(req.user.id);
     res.json(history);
+  });
+
+  app.get("/api/my-subscriptions", authenticateToken, (req: any, res) => {
+    const joined = db.prepare(`
+      SELECT s.*, gm.status as member_status, gm.payment_status, gm.next_renewal_date, u.name as owner_name
+      FROM group_members gm
+      JOIN subscriptions s ON gm.subscription_id = s.id
+      JOIN users u ON s.owner_id = u.id
+      WHERE gm.user_id = ?
+    `).all(req.user.id);
+    res.json(joined);
+  });
+
+  app.get("/api/my-groups", authenticateToken, (req: any, res) => {
+    const groups = db.prepare(`
+      SELECT s.*, (SELECT COUNT(*) FROM group_members WHERE subscription_id = s.id AND status = 'active') as active_members
+      FROM subscriptions s
+      WHERE s.owner_id = ?
+    `).all(req.user.id);
+    res.json(groups);
   });
 
   // --- Socket.io ---
